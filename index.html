@@ -1,24 +1,19 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Neon Hook - Protocol Edition</title>
+    <title>CUNION CLIMB - Protocol Edition</title>
     <style>
         body { margin: 0; background: #010101; overflow: hidden; font-family: 'Courier New', monospace; cursor: none; }
         canvas { display: block; }
-        
         #ui-container { position: absolute; top: 20px; left: 20px; color: #0ff; pointer-events: none; z-index: 10; }
         .stat-text { font-size: 20px; font-weight: bold; text-shadow: 0 0 10px #0ff; margin-bottom: 5px; }
-
         #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; justify-content: center; align-items: center; z-index: 100; cursor: default; }
         .menu-box { padding: 40px; border: 2px solid #0ff; background: #000; text-align: center; box-shadow: 0 0 20px #0ff; min-width: 320px; }
-        
         input { background: #000; border: 1px solid #0ff; color: #fff; padding: 10px; font-family: 'Courier New'; margin: 10px; width: 200px; outline: none; }
         button { background: #0ff; border: none; padding: 10px 20px; font-family: 'Courier New'; font-weight: bold; cursor: pointer; margin: 5px; width: 100%; max-width: 240px; transition: 0.2s; }
         button:hover { background: #fff; box-shadow: 0 0 15px #fff; }
-        
         #skin-list { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }
         .skin-item { border: 2px solid #333; padding: 15px; background: #050505; transition: 0.3s; }
-        .skin-item:hover { transform: scale(1.05); }
         .hidden { display: none !important; }
     </style>
 </head>
@@ -26,9 +21,11 @@
 
     <div id="overlay">
         <div class="menu-box" id="main-menu">
-            <h1 style="color:#0ff; margin:0;">NEON HOOK</h1>
+            <h1 style="color:#0ff; margin:0;">CUNION CLIMB</h1>
             <p style="color:#0ff; font-size: 10px; letter-spacing: 2px; margin-bottom: 20px;">GLOBAL UPLINK ACTIVE</p>
-            <input type="text" id="name-input" placeholder="Pilot Name..." maxlength="12">
+            <input type="text" id="name-input" placeholder="Pilot ID..." maxlength="12">
+            <br>
+            <input type="password" id="pass-input" placeholder="Access Key..." maxlength="12">
             <br>
             <button onclick="startGame()">LAUNCH ENGINE</button>
             <button onclick="showSkins()">SKIN PROTOCOLS</button>
@@ -36,7 +33,6 @@
 
         <div class="menu-box hidden" id="pause-menu">
             <h1 style="color:#0ff; margin:0;">PAUSED</h1>
-            <p style="color:#0ff; font-size: 10px; margin-bottom: 20px;">SYSTEMS ON STANDBY</p>
             <button onclick="resumeGame()">RESUME</button>
             <button onclick="showSkins()">SKIN PROTOCOLS</button>
             <button onclick="logout()" style="background:#f00; color:#fff;">LOG OUT</button>
@@ -60,13 +56,13 @@
     <canvas id="canvas"></canvas>
 
 <script>
-// --- CONFIGURATION ---
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbygzKt8CKGzy6WN75m5FuMQY3dnyc1ncTKBV3Ox7frpbmp1KAmRz0iNqvlL3tPD579DlA/exec"; 
-const ALTITUDE_ALLOWANCE = 1; // Credits earned per 1 meter of NEW altitude
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzecAUmJDW6Ba7k1kfhj132Wa6MIAdEGOF2I1XH-v7Xx3ZORK4ptWtWw0nlF9ERI7djZg/exec"; 
+const CREDIT_MULTIPLIER = 0.1; 
 
 let gameActive = false;
 let isPaused = false;
-let user = { name: "Guest", best: 0, credits: 0, color: "#0ff", unlocked: ["#0ff"] };
+let riftsClearedSession = 0;
+let user = { name: "Guest", pass: "", best: 0, credits: 0, color: "#0ff", unlocked: ["#0ff"] };
 
 const skinData = [
     { name: "NEON_DEFAULT", color: "#0ff", cost: 0 },
@@ -75,39 +71,41 @@ const skinData = [
     { name: "PHANTOM_ICE", color: "#fff", cost: 6000 }
 ];
 
-// --- DATA PERSISTENCE ---
-function saveToDisk() {
-    localStorage.setItem('neon_hook_v2_' + user.name, JSON.stringify(user));
-}
+function saveToDisk() { localStorage.setItem('cunion_v2_' + user.name, JSON.stringify(user)); }
 
-function loadFromDisk(name) {
-    const saved = localStorage.getItem('neon_hook_v2_' + name);
+function loadFromDisk(name, pass) {
+    const saved = localStorage.getItem('cunion_v2_' + name);
     if (saved) {
-        user = JSON.parse(saved);
-        document.getElementById('best-height').innerText = user.best;
+        let tempUser = JSON.parse(saved);
+        if(tempUser.pass === pass) { user = tempUser; return true; }
+        else { alert("ACCESS DENIED: KEY MISMATCH"); return false; }
     } else {
-        user = { name: name, best: 0, credits: 0, color: "#0ff", unlocked: ["#0ff"] };
+        user = { name: name, pass: pass, best: 0, credits: 0, color: "#0ff", unlocked: ["#0ff"] };
+        return true;
     }
 }
 
 function sendToLeaderboard() {
     fetch(SCRIPT_URL, {
         method: "POST",
-        body: JSON.stringify({ type: "saveScore", name: user.name, score: user.best }),
+        body: JSON.stringify({ type: "saveScore", name: user.name, pass: user.pass, score: user.best, rifts: riftsClearedSession }),
         mode: "no-cors", 
         headers: { "Content-Type": "text/plain" }
     }).catch(e => console.log("Uplink failed."));
 }
 
-// --- MENU & PAUSE LOGIC ---
 function startGame() {
-    const input = document.getElementById('name-input').value.trim();
-    if (input === "") return;
-    loadFromDisk(input);
-    document.getElementById('d-name').innerText = user.name;
-    document.getElementById('overlay').classList.add('hidden');
-    gameActive = true;
-    isPaused = false;
+    const name = document.getElementById('name-input').value.trim();
+    const pass = document.getElementById('pass-input').value.trim();
+    if (name === "" || pass === "") return;
+    if(loadFromDisk(name, pass)) {
+        document.getElementById('d-name').innerText = user.name;
+        document.getElementById('best-height').innerText = user.best;
+        document.getElementById('overlay').classList.add('hidden');
+        gameActive = true;
+        isPaused = false;
+        riftsClearedSession = 0;
+    }
 }
 
 function togglePause() {
@@ -117,10 +115,7 @@ function togglePause() {
         document.getElementById('overlay').classList.remove('hidden');
         document.getElementById('pause-menu').classList.remove('hidden');
         document.getElementById('main-menu').classList.add('hidden');
-        document.getElementById('skin-menu').classList.add('hidden');
-    } else {
-        resumeGame();
-    }
+    } else { resumeGame(); }
 }
 
 function resumeGame() {
@@ -138,51 +133,34 @@ function showSkins() {
 
 function backFromSkins() {
     document.getElementById('skin-menu').classList.add('hidden');
-    if (gameActive) {
-        document.getElementById('pause-menu').classList.remove('hidden');
-    } else {
-        document.getElementById('main-menu').classList.remove('hidden');
-    }
-}
-
-function logout() {
-    saveToDisk();
-    gameActive = false;
-    isPaused = false;
-    document.getElementById('overlay').classList.remove('hidden');
-    document.getElementById('main-menu').classList.remove('hidden');
-    document.getElementById('pause-menu').classList.add('hidden');
-    document.getElementById('skin-menu').classList.add('hidden');
+    if (gameActive) document.getElementById('pause-menu').classList.remove('hidden');
+    else document.getElementById('main-menu').classList.remove('hidden');
 }
 
 function renderSkins() {
-    document.getElementById('credit-count').innerText = user.credits;
+    document.getElementById('credit-count').innerText = Math.floor(user.credits);
     const list = document.getElementById('skin-list');
     list.innerHTML = "";
     skinData.forEach(s => {
         const bought = user.unlocked.includes(s.color);
-        list.innerHTML += `
-            <div class="skin-item" style="border-color: ${s.color}; box-shadow: 0 0 10px ${s.color}44;">
-                <div style="color:${s.color}; font-size: 12px; font-weight: bold;">${s.name}</div>
-                <div style="color:#777; font-size: 10px; margin-bottom: 10px;">COST: ${s.cost}m</div>
-                ${bought ? `<button onclick="setSkin('${s.color}')" style="background:${s.color}; color:#000; width:100px;">EQUIP</button>` : `<button onclick="buySkin('${s.color}',${s.cost})" style="width:100px;">BUY</button>`}
-            </div>`;
+        list.innerHTML += `<div class="skin-item" style="border-color: ${s.color};">
+            <div style="color:${s.color}; font-size: 12px;">${s.name}</div>
+            ${bought ? `<button onclick="setSkin('${s.color}')" style="background:${s.color}; color:#000;">EQUIP</button>` : `<button onclick="buySkin('${s.color}',${s.cost})">BUY ${s.cost}</button>`}
+        </div>`;
     });
 }
 
-function buySkin(c, cost) {
-    if(user.credits >= cost) { user.credits -= cost; user.unlocked.push(c); saveToDisk(); renderSkins(); }
-}
+function buySkin(c, cost) { if(user.credits >= cost) { user.credits -= cost; user.unlocked.push(c); saveToDisk(); renderSkins(); } }
 function setSkin(c) { user.color = c; saveToDisk(); backFromSkins(); }
 
-// --- GAME CORE (APPROVED PHYSICS) ---
+// --- CORE ENGINE ---
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
 const GRAVITY = 0.28, FRICTION_AIR = 0.985, FRICTION_GROUND = 0.85;
-const WALK_SPEED = 0.7, SWING_FORCE = 0.6, HOOK_RANGE = 380, MEGA_LAUNCH = -52;
+const WALK_SPEED = 0.7, JUMP_FORCE = -10, SWING_FORCE = 0.6, HOOK_RANGE = 380, MEGA_LAUNCH = -52;
 const FLOOR_Y = canvas.height - 50;
 
 let player = { x: canvas.width/2, y: FLOOR_Y-30, vx: 0, vy: 0, hookedTo: null, ropeLen: 0, radius: 15, onGround: false, history: [], launchCooldown: 0 };
@@ -191,18 +169,16 @@ let mouse = { x: 0, y: 0 }, currentTarget = null, shakeTime = 0, keys = {}, anch
 for (let i = 0; i < 2000; i++) {
     let ay = (canvas.height - 250) - (i * 180);
     anchors.push({ x: Math.random() * (canvas.width - 200) + 100, y: ay });
-    if (i % 15 === 0 && i > 0) powerUps.push({ x: Math.random() * (canvas.width - 200) + 100, y: ay - 90, radius: 35, active: true });
+    if (i % 15 === 0 && i > 0) powerUps.push({ x: Math.random() * (canvas.width - 200) + 100, y: ay - 90, radius: 35, active: true, rot: 0 });
 }
 
 window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
-window.addEventListener('keydown', e => {
-    keys[e.code] = true;
-    if (e.code === 'Escape') togglePause();
-});
+window.addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'Escape') togglePause(); });
 window.addEventListener('keyup', e => keys[e.code] = false);
 window.addEventListener('mousedown', () => { 
-    if(!gameActive || isPaused) return;
-    if(currentTarget) { player.hookedTo = currentTarget; player.ropeLen = Math.sqrt((player.x-currentTarget.x)**2+(player.y-currentTarget.y)**2); }
+    if(!gameActive || isPaused || !currentTarget) return;
+    player.hookedTo = currentTarget; 
+    player.ropeLen = Math.sqrt((player.x-currentTarget.x)**2+(player.y-currentTarget.y)**2); 
 });
 window.addEventListener('mouseup', () => player.hookedTo = null);
 
@@ -212,7 +188,7 @@ function update() {
     if (player.launchCooldown > 0) player.launchCooldown--;
 
     player.history.push({x: player.x, y: player.y});
-    if (player.history.length > 22) player.history.shift();
+    if (player.history.length > 20) player.history.shift();
 
     currentTarget = null;
     anchors.forEach(a => {
@@ -221,9 +197,11 @@ function update() {
     });
 
     powerUps.forEach(p => {
+        p.rot += 0.05;
         if (p.active && player.launchCooldown === 0) {
             if (Math.sqrt((player.x-p.x)**2+(player.y-p.y)**2) < player.radius + p.radius) {
-                player.vy = MEGA_LAUNCH; player.vx *= 1.2; player.hookedTo = null; player.launchCooldown = 180; shakeTime = 30;
+                player.vy = MEGA_LAUNCH; player.vx *= 1.4; player.hookedTo = null; 
+                player.launchCooldown = 120; shakeTime = 25; riftsClearedSession++;
             }
         }
     });
@@ -242,6 +220,7 @@ function update() {
     } else if (player.onGround) {
         if (keys['KeyA'] || keys['ArrowLeft']) player.vx -= WALK_SPEED;
         if (keys['KeyD'] || keys['ArrowRight']) player.vx += WALK_SPEED;
+        if (keys['Space'] || keys['ArrowUp'] || keys['KeyW']) player.vy = JUMP_FORCE;
         player.vx *= FRICTION_GROUND;
     }
 
@@ -251,66 +230,72 @@ function update() {
     if (player.y > FLOOR_Y - player.radius) { player.y = FLOOR_Y-player.radius; player.vy = 0; player.onGround = true; } 
     else { player.onGround = false; }
 
-    if (player.x < player.radius || player.x > canvas.width-player.radius) { player.vx *= -0.6; player.x = (player.x < player.radius) ? player.radius : canvas.width-player.radius; }
+    if (player.x < player.radius || player.x > canvas.width-player.radius) { player.vx *= -0.5; player.x = (player.x < player.radius) ? player.radius : canvas.width-player.radius; }
     if (shakeTime > 0) shakeTime--;
 
     let h = Math.floor(Math.max(0, (FLOOR_Y - player.radius - player.y)/10));
     document.getElementById('height').innerText = h;
     if(h > user.best) { 
-        let gain = (h - user.best) * ALTITUDE_ALLOWANCE;
-        user.best = h; 
-        user.credits += gain; 
+        let gain = (h - user.best) * CREDIT_MULTIPLIER;
+        user.best = h; user.credits += gain;
         document.getElementById('best-height').innerText = h; 
-        if(h % 100 === 0) saveToDisk();
-        if(h % 500 === 0) sendToLeaderboard();
+        if(h % 500 === 0) { saveToDisk(); sendToLeaderboard(); }
     }
 }
 
 function draw() {
     let camY = Math.min(0, player.y - canvas.height * 0.7);
     ctx.save();
-    if (shakeTime > 0) ctx.translate(Math.random()*16-8, Math.random()*16-8);
+    if (shakeTime > 0) ctx.translate(Math.random()*10-5, Math.random()*10-5);
     ctx.fillStyle = "#010101"; ctx.fillRect(0,0,canvas.width,canvas.height);
 
-    // Floor
     ctx.fillStyle = "#0a0a0a"; ctx.fillRect(0, FLOOR_Y-camY, canvas.width, 300);
-    ctx.strokeStyle = "#0ff"; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(0, FLOOR_Y-camY); ctx.lineTo(canvas.width, FLOOR_Y-camY); ctx.stroke();
+    ctx.strokeStyle = "#0ff"; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(0, FLOOR_Y-camY); ctx.lineTo(canvas.width, FLOOR_Y-camY); ctx.stroke();
 
-    // Body-Flush Trail
     if (player.history.length > 2) {
-        ctx.lineCap = "round"; ctx.lineJoin = "round";
         for (let i = 0; i < player.history.length - 1; i++) {
             let p1 = player.history[i], p2 = player.history[i+1], ratio = i/player.history.length;
             ctx.beginPath(); ctx.moveTo(p1.x, p1.y-camY); ctx.lineTo(p2.x, p2.y-camY);
-            ctx.lineWidth = ratio * (player.radius*1.5); ctx.globalAlpha = ratio*0.5;
-            ctx.strokeStyle = player.launchCooldown > 0 ? "#a0f" : user.color; ctx.stroke();
+            ctx.lineWidth = ratio * 20; ctx.globalAlpha = ratio*0.4;
+            ctx.strokeStyle = player.launchCooldown > 0 ? "#f0f" : user.color; ctx.stroke();
         }
         ctx.globalAlpha = 1;
     }
 
-    // Interactive Objects
-    powerUps.forEach(p => { 
-        ctx.beginPath(); ctx.arc(p.x, p.y-camY, p.radius, 0, Math.PI*2); 
-        ctx.fillStyle = player.launchCooldown > 0 ? "#201" : "#a0f"; ctx.fill(); 
+    powerUps.forEach(p => {
+        ctx.save(); ctx.translate(p.x, p.y-camY); ctx.rotate(p.rot);
+        ctx.beginPath(); ctx.arc(0, 0, p.radius, 0, Math.PI*2);
+        ctx.strokeStyle = "#a0f"; ctx.setLineDash([5, 10]); ctx.lineWidth = 4; ctx.stroke();
+        ctx.fillStyle = "rgba(160, 0, 255, 0.2)"; ctx.fill();
+        ctx.restore();
     });
 
     anchors.forEach(a => {
         let isT = (a === currentTarget || a === player.hookedTo);
-        ctx.beginPath(); ctx.arc(a.x, a.y-camY, isT?10:6, 0, Math.PI*2);
-        ctx.fillStyle = isT?"#fff":(Math.sqrt((player.x-a.x)**2+(player.y-a.y)**2)<HOOK_RANGE?"#0ff":"#f0f"); ctx.fill();
+        ctx.beginPath(); ctx.arc(a.x, a.y-camY, isT?10:5, 0, Math.PI*2);
+        ctx.fillStyle = isT?"#fff":"#333"; ctx.fill();
     });
 
     if (player.hookedTo) { 
         ctx.beginPath(); ctx.moveTo(player.x, player.y-camY); 
         ctx.lineTo(player.hookedTo.x, player.hookedTo.y-camY); 
-        ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke(); 
+        ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke(); 
     }
-    ctx.beginPath(); ctx.arc(player.x, player.y-camY, player.radius, 0, Math.PI*2); 
-    ctx.fillStyle = player.launchCooldown>0?"#fff":(player.onGround?"#0f0":user.color); ctx.fill();
-    ctx.restore();
 
-    if (!isPaused) {
-        ctx.beginPath(); ctx.arc(mouse.x, mouse.y, 45, 0, Math.PI*2); ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.setLineDash([5,5]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(player.x, player.y-camY, player.radius, 0, Math.PI*2); 
+    ctx.fillStyle = player.launchCooldown>0?"#fff":user.color; ctx.fill();
+    
+    // RESTORED TARGETING RING
+    if (!isPaused && gameActive) {
+        ctx.restore(); // Exit shake for mouse UI
+        ctx.beginPath(); 
+        ctx.arc(mouse.x, mouse.y, 45, 0, Math.PI*2); 
+        ctx.strokeStyle = "rgba(255,255,255,0.4)"; 
+        ctx.setLineDash([5,5]); 
+        ctx.stroke(); 
+        ctx.setLineDash([]);
+    } else {
+        ctx.restore();
     }
 
     update(); requestAnimationFrame(draw);
