@@ -40,7 +40,7 @@
         
         <div class="menu-box hidden" id="skin-menu">
             <h2 style="color:#f0f; margin:0; text-shadow: 0 0 10px #f0f;">EQUIPMENT BAY</h2>
-            <p style="color:#fff">Altitude Credits: <span id="credit-count" style="color:#0f0">0</span>m</p>
+            <p style="color:#fff">Altitude Credits: <span id="credit-count" style="color:#0f0">0</span> WARPS</p>
             <div id="skin-list"></div>
             <br>
             <button onclick="backFromSkins()" style="background:#f0f; color:#000;">BACK</button>
@@ -66,9 +66,9 @@ let user = { name: "Guest", pass: "", best: 0, credits: 0, color: "#0ff", unlock
 
 const skinData = [
     { name: "NEON_DEFAULT", color: "#0ff", cost: 0 },
-    { name: "VIOLET_PULSE", color: "#f0f", cost: 1000 },
-    { name: "SOLAR_FLARE", color: "#ff0", cost: 3000 },
-    { name: "PHANTOM_ICE", color: "#fff", cost: 6000 }
+    { name: "VIOLET_PULSE", color: "#f0f", cost: 100 },
+    { name: "SOLAR_FLARE", color: "#ff0", cost: 300 },
+    { name: "VOID_PULSE", color: "#fff", cost: 600 }
 ];
 
 function saveToDisk() { localStorage.setItem('cunion_v2_' + user.name, JSON.stringify(user)); }
@@ -135,6 +135,12 @@ function backFromSkins() {
     document.getElementById('skin-menu').classList.add('hidden');
     if (gameActive) document.getElementById('pause-menu').classList.remove('hidden');
     else document.getElementById('main-menu').classList.remove('hidden');
+}
+
+function logout() {
+    saveToDisk();
+    gameActive = false;
+    window.location.reload();
 }
 
 function renderSkins() {
@@ -285,9 +291,8 @@ function draw() {
     ctx.beginPath(); ctx.arc(player.x, player.y-camY, player.radius, 0, Math.PI*2); 
     ctx.fillStyle = player.launchCooldown>0?"#fff":user.color; ctx.fill();
     
-    // RESTORED TARGETING RING
     if (!isPaused && gameActive) {
-        ctx.restore(); // Exit shake for mouse UI
+        ctx.restore();
         ctx.beginPath(); 
         ctx.arc(mouse.x, mouse.y, 45, 0, Math.PI*2); 
         ctx.strokeStyle = "rgba(255,255,255,0.4)"; 
