@@ -275,7 +275,7 @@ function draw() {
     let pCol = player.launchCooldown > 0 ? "#fff" : user.color;
 
     if (user.color === "#ff0") {
-        // --- SOLAR FLARE (SPIRAL REMOVED) ---
+        // --- SOLAR FLARE ---
         let pulse = (Math.sin(Date.now() * 0.015) + 1) / 2;
         let glow = ctx.createRadialGradient(0, 0, 0, 0, 0, 40 + (pulse * 10));
         glow.addColorStop(0, "#fff");
@@ -283,28 +283,43 @@ function draw() {
         glow.addColorStop(0.6, "rgba(255, 69, 0, 0.3)");
         glow.addColorStop(1, "rgba(255, 0, 0, 0)");
         ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0, 0, 50, 0, Math.PI * 2); ctx.fill();
-
         ctx.fillStyle = "#fff"; ctx.shadowBlur = 15; ctx.shadowColor = "#ff0";
         ctx.beginPath(); ctx.arc(0, 0, player.radius, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
     } else {
-        // --- DEFAULT & OTHER SKINS ---
-        if (user.color !== "#0ff") {
-            ctx.save(); ctx.rotate(time); ctx.strokeStyle = pCol; ctx.lineWidth = 1;
-            ctx.beginPath(); for(let i=0; i<6; i++) { let a = i * (Math.PI/3); ctx.lineTo(Math.cos(a)*26, Math.sin(a)*26); } ctx.closePath(); ctx.stroke();
-            ctx.restore();
-            for(let i=0; i<3; i++) {
-                ctx.save(); let rot = (time * 1.5) + (i * (Math.PI * 2 / 3)); ctx.rotate(rot); ctx.translate(32, 0);
-                let dGrad = ctx.createRadialGradient(0,0,0,0,0,6); dGrad.addColorStop(0, "#fff"); dGrad.addColorStop(0.5, pCol); dGrad.addColorStop(1, "transparent");
-                ctx.fillStyle = dGrad; ctx.beginPath(); ctx.arc(0,0,6,0,Math.PI*2); ctx.fill(); ctx.restore();
+        // --- DEFAULT & VIOLET PULSE ---
+        if (user.color === "#f0f") {
+            // SINGLE CONTRAST-DRIVEN RING
+            ctx.save();
+            // Rotation is current time + inverse player movement for "contrast"
+            let contrastRot = time - (player.vx * 0.1) - (player.vy * 0.05);
+            ctx.rotate(contrastRot);
+            
+            let count = 8; // Number of evenly spaced circles
+            let radius = 35; // Distance from center
+            
+            for(let i = 0; i < count; i++) {
+                ctx.save();
+                ctx.rotate(i * (Math.PI * 2 / count));
+                ctx.translate(radius, 0);
+                
+                // Glowing circle
+                let orbG = ctx.createRadialGradient(0,0,0,0,0,5);
+                orbG.addColorStop(0, "#fff"); orbG.addColorStop(1, "transparent");
+                ctx.fillStyle = orbG; ctx.beginPath(); ctx.arc(0,0,5,0,Math.PI*2); ctx.fill();
+                
+                // Small violet frame
+                ctx.strokeStyle = "#f0f"; ctx.lineWidth = 1.5;
+                ctx.beginPath(); ctx.arc(0,0,4,0,Math.PI*2); ctx.stroke();
+                ctx.restore();
             }
+            ctx.restore();
         }
+
         ctx.rotate(player.rotation);
-        // Clean flat logic for NEON (Gradient removed)
         ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(0, 0, player.radius, 0, Math.PI*2); ctx.fill();
         ctx.strokeStyle = pCol; ctx.lineWidth = 2.5; ctx.stroke();
 
-        // Pulse core only if not default
         if (user.color !== "#0ff") {
             let pulse = (Math.sin(Date.now()*0.01) + 1) / 2;
             ctx.beginPath(); ctx.arc(0, 0, player.radius * 0.5, 0, Math.PI*2);
