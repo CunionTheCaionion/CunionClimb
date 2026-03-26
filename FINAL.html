@@ -63,7 +63,6 @@ const CREDIT_MULTIPLIER = 0.1;
 
 let gameActive = false;
 let isPaused = false;
-let riftsClearedSession = 0;
 let user = { name: "Guest", pass: "", best: 0, credits: 0, color: "#0ff", unlocked: ["#0ff"] };
 
 const skinData = [
@@ -80,10 +79,8 @@ async function startGame() {
     const pass = document.getElementById('pass-input').value.trim();
     const notice = document.getElementById('sync-notice');
     if (!name || !pass) return;
-
     notice.innerText = "SYNCHRONIZING WITH UPLINK...";
     document.getElementById('launch-btn').disabled = true;
-
     try {
         const response = await fetch(SCRIPT_URL, {
             method: "POST",
@@ -91,20 +88,11 @@ async function startGame() {
             headers: { "Content-Type": "text/plain" }
         });
         const cloudData = await response.json();
-
         if (cloudData.exists) {
-            user = {
-                name: name,
-                pass: pass,
-                best: cloudData.best || 0,
-                credits: cloudData.credits || 0,
-                color: "#0ff",
-                unlocked: cloudData.skins ? cloudData.skins.split(", ") : ["#0ff"]
-            };
+            user = { name: name, pass: pass, best: cloudData.best || 0, credits: cloudData.credits || 0, color: user.color || "#0ff", unlocked: cloudData.skins ? cloudData.skins.split(", ") : ["#0ff"] };
         } else {
             user = { name: name, pass: pass, best: 0, credits: 0, color: "#0ff", unlocked: ["#0ff"] };
         }
-        
         document.getElementById('d-name').innerText = user.name;
         document.getElementById('best-height').innerText = user.best;
         document.getElementById('overlay').classList.add('hidden');
@@ -121,18 +109,7 @@ async function startGame() {
 }
 
 function sendToLeaderboard() {
-    fetch(SCRIPT_URL, {
-        method: "POST",
-        body: JSON.stringify({ 
-            type: "saveScore", 
-            name: user.name, 
-            pass: user.pass,
-            score: user.best, 
-            credits: Math.floor(user.credits),
-            skins: user.unlocked.join(", ")
-        }),
-        mode: "no-cors"
-    });
+    fetch(SCRIPT_URL, { method: "POST", body: JSON.stringify({ type: "saveScore", name: user.name, pass: user.pass, score: user.best, credits: Math.floor(user.credits), skins: user.unlocked.join(", ") }), mode: "no-cors" });
 }
 
 function togglePause() {
@@ -145,41 +122,16 @@ function togglePause() {
     } else { resumeGame(); }
 }
 
-function resumeGame() {
-    isPaused = false;
-    document.getElementById('overlay').classList.add('hidden');
-    document.getElementById('pause-menu').classList.add('hidden');
-}
-
-function showSkins() {
-    document.getElementById('main-menu').classList.add('hidden');
-    document.getElementById('pause-menu').classList.add('hidden');
-    document.getElementById('skin-menu').classList.remove('hidden');
-    renderSkins();
-}
-
-function backFromSkins() {
-    document.getElementById('skin-menu').classList.add('hidden');
-    if (gameActive) document.getElementById('pause-menu').classList.remove('hidden');
-    else document.getElementById('main-menu').classList.remove('hidden');
-}
+function resumeGame() { isPaused = false; document.getElementById('overlay').classList.add('hidden'); document.getElementById('pause-menu').classList.add('hidden'); }
+function showSkins() { document.getElementById('main-menu').classList.add('hidden'); document.getElementById('pause-menu').classList.add('hidden'); document.getElementById('skin-menu').classList.remove('hidden'); renderSkins(); }
+function backFromSkins() { document.getElementById('skin-menu').classList.add('hidden'); if (gameActive) document.getElementById('pause-menu').classList.remove('hidden'); else document.getElementById('main-menu').classList.remove('hidden'); }
 
 function logout() {
-    saveToDisk();
-    sendToLeaderboard();
-    gameActive = false;
-    isPaused = false;
-    document.getElementById('pause-menu').classList.add('hidden');
-    document.getElementById('skin-menu').classList.add('hidden');
-    document.getElementById('main-menu').classList.remove('hidden');
-    document.getElementById('overlay').classList.remove('hidden');
-    document.getElementById('name-input').value = "";
-    document.getElementById('pass-input').value = "";
-    document.getElementById('height').innerText = "0";
-    player.x = canvas.width / 2;
-    player.y = FLOOR_Y - 30;
-    player.vx = 0; player.vy = 0;
-    player.hookedTo = null; player.history = [];
+    saveToDisk(); sendToLeaderboard();
+    gameActive = false; isPaused = false;
+    document.getElementById('pause-menu').classList.add('hidden'); document.getElementById('skin-menu').classList.add('hidden'); document.getElementById('main-menu').classList.remove('hidden'); document.getElementById('overlay').classList.remove('hidden');
+    document.getElementById('name-input').value = ""; document.getElementById('pass-input').value = ""; document.getElementById('height').innerText = "0";
+    player.x = canvas.width / 2; player.y = FLOOR_Y - 30; player.vx = 0; player.vy = 0; player.hookedTo = null; player.history = [];
 }
 
 function renderSkins() {
@@ -242,7 +194,7 @@ function update() {
         if (p.active && player.launchCooldown === 0) {
             if (Math.sqrt((player.x-p.x)**2+(player.y-p.y)**2) < player.radius + p.radius) {
                 player.vy = MEGA_LAUNCH; player.vx *= 1.4; player.hookedTo = null; 
-                player.launchCooldown = 120; shakeTime = 25; riftsClearedSession++;
+                player.launchCooldown = 120; shakeTime = 25;
             }
         }
     });
@@ -287,70 +239,83 @@ function draw() {
     ctx.fillStyle = "#0a0a0a"; ctx.fillRect(0, FLOOR_Y-camY, canvas.width, 300);
     ctx.strokeStyle = "#0ff"; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(0, FLOOR_Y-camY); ctx.lineTo(canvas.width, FLOOR_Y-camY); ctx.stroke();
 
+    // TRAILS
     if (player.history.length > 2) {
         for (let i = 0; i < player.history.length - 1; i++) {
             let p1 = player.history[i], p2 = player.history[i+1], ratio = i/player.history.length;
             ctx.beginPath(); ctx.moveTo(p1.x, p1.y-camY); ctx.lineTo(p2.x, p2.y-camY);
-            ctx.lineWidth = ratio * 20; ctx.globalAlpha = ratio*0.4;
-            ctx.strokeStyle = player.launchCooldown > 0 ? "#fff" : user.color; ctx.stroke();
+            if (user.color === "#ff0") {
+                ctx.lineWidth = ratio * 28; ctx.globalAlpha = ratio * 0.6; ctx.strokeStyle = "#ff4500"; ctx.stroke();
+                ctx.lineWidth = ratio * 10; ctx.strokeStyle = "#fff"; ctx.stroke();
+            } else {
+                ctx.lineWidth = ratio * 15; ctx.globalAlpha = ratio * 0.3; ctx.strokeStyle = player.launchCooldown > 0 ? "#fff" : user.color; ctx.stroke();
+            }
         }
         ctx.globalAlpha = 1;
     }
 
+    // MAP OBJECTS
     powerUps.forEach(p => {
         ctx.save(); ctx.translate(p.x, p.y-camY); ctx.rotate(Date.now()*0.002);
         ctx.beginPath(); ctx.arc(0, 0, p.radius, 0, Math.PI*2);
         ctx.strokeStyle = "#a0f"; ctx.setLineDash([5, 10]); ctx.lineWidth = 4; ctx.stroke();
         ctx.fillStyle = "rgba(160, 0, 255, 0.2)"; ctx.fill(); ctx.restore();
     });
-
     anchors.forEach(a => {
         let isT = (a === currentTarget || a === player.hookedTo);
         ctx.beginPath(); ctx.arc(a.x, a.y-camY, isT?10:5, 0, Math.PI*2);
         ctx.fillStyle = isT?"#fff":"#333"; ctx.fill();
     });
+    if (player.hookedTo) { ctx.beginPath(); ctx.moveTo(player.x, player.y-camY); ctx.lineTo(player.hookedTo.x, player.hookedTo.y-camY); ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 2; ctx.stroke(); }
 
-    if (player.hookedTo) { 
-        ctx.beginPath(); ctx.moveTo(player.x, player.y-camY); 
-        ctx.lineTo(player.hookedTo.x, player.hookedTo.y-camY); 
-        ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke(); 
-    }
-
+    // --- PLAYER RENDER ---
     ctx.save();
     ctx.translate(player.x, player.y - camY);
-    ctx.rotate(player.rotation);
+    let time = Date.now() * 0.002;
     let pCol = player.launchCooldown > 0 ? "#fff" : user.color;
-    let isPremium = user.color !== "#0ff";
 
-    if (isPremium) {
-        ctx.strokeStyle = pCol; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(-22, 0); ctx.lineTo(-15, -10); ctx.lineTo(-15, 10); ctx.closePath(); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(22, 0); ctx.lineTo(15, -10); ctx.lineTo(15, 10); ctx.closePath(); ctx.stroke();
-        let time = Date.now() * 0.005;
-        for(let i=0; i<3; i++) {
-            ctx.save();
-            let rot = time + (i * (Math.PI * 2 / 3));
-            ctx.rotate(rot); ctx.translate(28, 0);
-            ctx.fillStyle = pCol;
-            if (user.color === "#f0f") { ctx.beginPath(); ctx.moveTo(0, -4); ctx.lineTo(4, 0); ctx.lineTo(0, 4); ctx.lineTo(-4, 0); ctx.closePath(); ctx.fill(); }
-            else if (user.color === "#ff0") { ctx.beginPath(); ctx.moveTo(0, -5); ctx.lineTo(4, 3); ctx.lineTo(-4, 3); ctx.closePath(); ctx.fill(); }
-            else if (user.color === "#fff") { ctx.fillRect(-3, -3, 6, 6); }
+    if (user.color === "#ff0") {
+        // --- SOLAR FLARE (SPIRAL REMOVED) ---
+        let pulse = (Math.sin(Date.now() * 0.015) + 1) / 2;
+        let glow = ctx.createRadialGradient(0, 0, 0, 0, 0, 40 + (pulse * 10));
+        glow.addColorStop(0, "#fff");
+        glow.addColorStop(0.2, "rgba(255, 255, 0, 0.9)");
+        glow.addColorStop(0.6, "rgba(255, 69, 0, 0.3)");
+        glow.addColorStop(1, "rgba(255, 0, 0, 0)");
+        ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0, 0, 50, 0, Math.PI * 2); ctx.fill();
+
+        ctx.fillStyle = "#fff"; ctx.shadowBlur = 15; ctx.shadowColor = "#ff0";
+        ctx.beginPath(); ctx.arc(0, 0, player.radius, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+    } else {
+        // --- DEFAULT & OTHER SKINS ---
+        if (user.color !== "#0ff") {
+            ctx.save(); ctx.rotate(time); ctx.strokeStyle = pCol; ctx.lineWidth = 1;
+            ctx.beginPath(); for(let i=0; i<6; i++) { let a = i * (Math.PI/3); ctx.lineTo(Math.cos(a)*26, Math.sin(a)*26); } ctx.closePath(); ctx.stroke();
             ctx.restore();
+            for(let i=0; i<3; i++) {
+                ctx.save(); let rot = (time * 1.5) + (i * (Math.PI * 2 / 3)); ctx.rotate(rot); ctx.translate(32, 0);
+                let dGrad = ctx.createRadialGradient(0,0,0,0,0,6); dGrad.addColorStop(0, "#fff"); dGrad.addColorStop(0.5, pCol); dGrad.addColorStop(1, "transparent");
+                ctx.fillStyle = dGrad; ctx.beginPath(); ctx.arc(0,0,6,0,Math.PI*2); ctx.fill(); ctx.restore();
+            }
+        }
+        ctx.rotate(player.rotation);
+        // Clean flat logic for NEON (Gradient removed)
+        ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(0, 0, player.radius, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = pCol; ctx.lineWidth = 2.5; ctx.stroke();
+
+        // Pulse core only if not default
+        if (user.color !== "#0ff") {
+            let pulse = (Math.sin(Date.now()*0.01) + 1) / 2;
+            ctx.beginPath(); ctx.arc(0, 0, player.radius * 0.5, 0, Math.PI*2);
+            ctx.fillStyle = pCol; ctx.globalAlpha = 0.3 + (pulse * 0.4); ctx.fill();
+            ctx.globalAlpha = 1;
         }
     }
-    ctx.beginPath(); ctx.arc(0, 0, player.radius, 0, Math.PI*2); 
-    ctx.fillStyle = "#000"; ctx.fill();
-    ctx.strokeStyle = pCol; ctx.lineWidth = 3; ctx.stroke();
-    let pulse = (Math.sin(Date.now()*0.01) + 1) / 2;
-    ctx.beginPath(); ctx.arc(0, 0, player.radius * 0.6, 0, Math.PI*2);
-    ctx.fillStyle = pCol; ctx.globalAlpha = 0.3 + (pulse * 0.4); ctx.fill();
-    ctx.restore();
     
+    ctx.restore();
     if (!isPaused && gameActive) {
-        ctx.restore();
-        ctx.beginPath(); ctx.arc(mouse.x, mouse.y, 45, 0, Math.PI*2); 
-        ctx.strokeStyle = "rgba(255,255,255,0.4)"; 
-        ctx.setLineDash([5,5]); ctx.stroke(); ctx.setLineDash([]);
+        ctx.restore(); ctx.beginPath(); ctx.arc(mouse.x, mouse.y, 45, 0, Math.PI*2); ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.setLineDash([5,5]); ctx.stroke(); ctx.setLineDash([]);
     } else { ctx.restore(); }
     update(); requestAnimationFrame(draw);
 }
