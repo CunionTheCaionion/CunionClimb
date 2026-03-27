@@ -15,7 +15,11 @@
         #skin-list { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }
         .skin-item { border: 2px solid #333; padding: 15px; background: #050505; transition: 0.3s; }
         .hidden { display: none !important; }
-        #sync-notice { color: #f0f; font-size: 10px; margin-top: 10px; }
+        #sync-notice { color: #f0f; font-size: 10px; margin-top: 10px; height: 12px; }
+        .mode-select { display: flex; gap: 5px; justify-content: center; margin: 10px 0; }
+        .m-btn { background: #111; color: #444; border: 1px solid #333; padding: 5px 10px; cursor: pointer; font-size: 10px; }
+        .m-btn.active { color: #0ff; border-color: #0ff; box-shadow: 0 0 5px #0ff; }
+        .m-btn.lava-on { color: #f44; border-color: #f44; box-shadow: 0 0 5px #f44; }
     </style>
 </head>
 <body>
@@ -23,26 +27,26 @@
     <div id="overlay">
         <div class="menu-box" id="main-menu">
             <h1 style="color:#0ff; margin:0;">CUNION CLIMB</h1>
-            <p style="color:#0ff; font-size: 10px; letter-spacing: 2px; margin-bottom: 20px;">UPLINK STABLE</p>
+            <p style="color:#0ff; font-size: 10px; letter-spacing: 2px; margin-bottom: 10px;">UPLINK STABLE</p>
             <input type="text" id="name-input" placeholder="Pilot ID..." maxlength="12">
-            <br>
             <input type="password" id="pass-input" placeholder="Access Key..." maxlength="12">
-            <br>
+            <div class="mode-select">
+                <div id="m-std" class="m-btn active" onclick="setProtocol('STD')">STANDARD</div>
+                <div id="m-lava" class="m-btn" onclick="setProtocol('LAVA')">LAVA CLIMB</div>
+            </div>
             <button id="launch-btn" onclick="startGame()">LAUNCH ENGINE</button>
             <button onclick="showSkins()">SKIN PROTOCOLS</button>
             <div id="sync-notice"></div>
         </div>
-
         <div class="menu-box hidden" id="pause-menu">
             <h1 style="color:#0ff; margin:0;">PAUSED</h1>
             <button onclick="resumeGame()">RESUME</button>
             <button onclick="showSkins()">SKIN PROTOCOLS</button>
             <button onclick="logout()" style="background:#f00; color:#fff;">LOG OUT</button>
         </div>
-        
         <div class="menu-box hidden" id="skin-menu">
-            <h2 style="color:#f0f; margin:0; text-shadow: 0 0 10px #f0f;">EQUIPMENT BAY</h2>
-            <p style="color:#fff">Altitude Credits: <span id="credit-count" style="color:#0f0">0</span>m</p>
+            <h2 style="color:#f0f; margin:0;">EQUIPMENT BAY</h2>
+            <p style="color:#fff">Credits: <span id="credit-count" style="color:#0f0">0</span></p>
             <div id="skin-list"></div>
             <br>
             <button onclick="backFromSkins()" style="background:#f0f; color:#000;">BACK</button>
@@ -53,6 +57,7 @@
         <div class="stat-text">PILOT: <span id="d-name">---</span></div>
         <div class="stat-text">ALTITUDE: <span id="height">0</span>m</div>
         <div class="stat-text" style="color:#f0f">BEST: <span id="best-height">0</span>m</div>
+        <div id="lava-counter" class="stat-text hidden" style="color:#f44">LAVA DIST: <span id="lava-dist">0</span>m</div>
     </div>
 
     <canvas id="canvas"></canvas>
@@ -61,8 +66,7 @@
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyHJkxAWX4UT-PNL4OgwPxy6NX_U3VWCepesdlQ4h5BDY1FqVw1peosoFD2bIew1QBJ7A/exec"; 
 const CREDIT_MULTIPLIER = 0.1; 
 
-let gameActive = false;
-let isPaused = false;
+let gameActive = false, isPaused = false, gameMode = "STD", lavaY = 10000; 
 let user = { name: "Guest", pass: "", best: 0, credits: 0, color: "#0ff", unlocked: ["#0ff"] };
 
 const skinData = [
@@ -72,15 +76,26 @@ const skinData = [
     { name: "PHANTOM_ICE", color: "#fff", cost: 6000 }
 ];
 
-function saveToDisk() { localStorage.setItem('cunion_v2_' + user.name, JSON.stringify(user)); }
+async function syncCloud() {
+    if (user.name === "Guest") return;
+    try {
+        await fetch(SCRIPT_URL, { 
+            method: "POST", 
+            body: JSON.stringify({ 
+                type: "saveScore", name: user.name, pass: user.pass, 
+                score: user.best, credits: Math.floor(user.credits), 
+                skins: user.unlocked.join(", ") 
+            }), 
+            mode: "no-cors" 
+        });
+    } catch (e) {}
+}
 
 async function startGame() {
     const name = document.getElementById('name-input').value.trim();
     const pass = document.getElementById('pass-input').value.trim();
-    const notice = document.getElementById('sync-notice');
     if (!name || !pass) return;
-    notice.innerText = "SYNCHRONIZING WITH UPLINK...";
-    document.getElementById('launch-btn').disabled = true;
+    document.getElementById('sync-notice').innerText = "SYNCING PROFILE...";
     try {
         const response = await fetch(SCRIPT_URL, {
             method: "POST",
@@ -90,54 +105,34 @@ async function startGame() {
         const cloudData = await response.json();
         if (cloudData.exists) {
             user = { name: name, pass: pass, best: cloudData.best || 0, credits: cloudData.credits || 0, color: user.color || "#0ff", unlocked: cloudData.skins ? cloudData.skins.split(", ") : ["#0ff"] };
-        } else {
-            user = { name: name, pass: pass, best: 0, credits: 0, color: "#0ff", unlocked: ["#0ff"] };
         }
-        document.getElementById('d-name').innerText = user.name;
-        document.getElementById('best-height').innerText = user.best;
-        document.getElementById('overlay').classList.add('hidden');
-        notice.innerText = "";
-        gameActive = true;
-        isPaused = false;
-    } catch (e) {
-        alert("UPLINK ERROR: PLAYING IN OFFLINE MODE");
-        user = { name: name, pass: pass, best: 0, credits: 0, color: "#0ff", unlocked: ["#0ff"] };
-        document.getElementById('overlay').classList.add('hidden');
-        gameActive = true;
-    }
-    document.getElementById('launch-btn').disabled = false;
+    } catch (e) {}
+    document.getElementById('d-name').innerText = user.name;
+    document.getElementById('best-height').innerText = user.best;
+    document.getElementById('sync-notice').innerText = "";
+    document.getElementById('overlay').classList.add('hidden');
+    player.x = canvas.width / 2; player.y = FLOOR_Y - 30; player.vx = 0; player.vy = 0; player.history = [];
+    lavaY = FLOOR_Y + 600; 
+    gameActive = true; isPaused = false;
 }
 
-function sendToLeaderboard() {
-    fetch(SCRIPT_URL, { method: "POST", body: JSON.stringify({ type: "saveScore", name: user.name, pass: user.pass, score: user.best, credits: Math.floor(user.credits), skins: user.unlocked.join(", ") }), mode: "no-cors" });
+function setProtocol(m) {
+    gameMode = m;
+    document.getElementById('m-std').className = m === 'STD' ? 'm-btn active' : 'm-btn';
+    document.getElementById('m-lava').className = m === 'LAVA' ? 'm-btn lava-on' : 'm-btn';
+    document.getElementById('lava-counter').classList.toggle('hidden', m !== 'LAVA');
 }
-
-function togglePause() {
-    if (!gameActive) return;
-    isPaused = !isPaused;
-    if (isPaused) {
-        document.getElementById('overlay').classList.remove('hidden');
-        document.getElementById('pause-menu').classList.remove('hidden');
-        document.getElementById('main-menu').classList.add('hidden');
-    } else { resumeGame(); }
-}
-
-function resumeGame() { isPaused = false; document.getElementById('overlay').classList.add('hidden'); document.getElementById('pause-menu').classList.add('hidden'); }
-function showSkins() { document.getElementById('main-menu').classList.add('hidden'); document.getElementById('pause-menu').classList.add('hidden'); document.getElementById('skin-menu').classList.remove('hidden'); renderSkins(); }
-function backFromSkins() { document.getElementById('skin-menu').classList.add('hidden'); if (gameActive) document.getElementById('pause-menu').classList.remove('hidden'); else document.getElementById('main-menu').classList.remove('hidden'); }
 
 function logout() {
-    saveToDisk(); sendToLeaderboard();
-    gameActive = false; isPaused = false;
-    document.getElementById('pause-menu').classList.add('hidden'); document.getElementById('skin-menu').classList.add('hidden'); document.getElementById('main-menu').classList.remove('hidden'); document.getElementById('overlay').classList.remove('hidden');
-    document.getElementById('name-input').value = ""; document.getElementById('pass-input').value = ""; document.getElementById('height').innerText = "0";
-    player.x = canvas.width / 2; player.y = FLOOR_Y - 30; player.vx = 0; player.vy = 0; player.hookedTo = null; player.history = [];
+    syncCloud(); gameActive = false;
+    document.getElementById('pause-menu').classList.add('hidden');
+    document.getElementById('main-menu').classList.remove('hidden');
+    document.getElementById('overlay').classList.remove('hidden');
 }
 
 function renderSkins() {
     document.getElementById('credit-count').innerText = Math.floor(user.credits);
-    const list = document.getElementById('skin-list');
-    list.innerHTML = "";
+    const list = document.getElementById('skin-list'); list.innerHTML = "";
     skinData.forEach(s => {
         const bought = user.unlocked.includes(s.color);
         list.innerHTML += `<div class="skin-item" style="border-color: ${s.color};">
@@ -146,57 +141,48 @@ function renderSkins() {
         </div>`;
     });
 }
+function buySkin(c, cost) { if(user.credits >= cost) { user.credits -= cost; user.unlocked.push(c); syncCloud(); renderSkins(); } }
+function setSkin(c) { user.color = c; backFromSkins(); }
+function resumeGame() { isPaused = false; document.getElementById('overlay').classList.add('hidden'); }
+function showSkins() { document.getElementById('main-menu').classList.add('hidden'); document.getElementById('pause-menu').classList.add('hidden'); document.getElementById('skin-menu').classList.remove('hidden'); renderSkins(); }
+function backFromSkins() { document.getElementById('skin-menu').classList.add('hidden'); if (gameActive) document.getElementById('pause-menu').classList.remove('hidden'); else document.getElementById('main-menu').classList.remove('hidden'); }
 
-function buySkin(c, cost) { if(user.credits >= cost) { user.credits -= cost; user.unlocked.push(c); saveToDisk(); renderSkins(); } }
-function setSkin(c) { user.color = c; saveToDisk(); backFromSkins(); }
-
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
-
+const canvas = document.getElementById('canvas'), ctx = canvas.getContext('2d');
+canvas.width = window.innerWidth; canvas.height = window.innerHeight;
 const GRAVITY = 0.28, FRICTION_AIR = 0.985, FRICTION_GROUND = 0.85;
-const WALK_SPEED = 0.7, JUMP_FORCE = -10, SWING_FORCE = 0.6, HOOK_RANGE = 380, MEGA_LAUNCH = -52;
+const WALK_SPEED = 0.7, JUMP_FORCE = -10, SWING_FORCE = 0.6, HOOK_RANGE = 380;
 const FLOOR_Y = canvas.height - 50;
 
-let player = { x: canvas.width/2, y: FLOOR_Y-30, vx: 0, vy: 0, hookedTo: null, ropeLen: 0, radius: 15, onGround: false, history: [], launchCooldown: 0, rotation: 0 };
-let mouse = { x: 0, y: 0 }, currentTarget = null, shakeTime = 0, keys = {}, anchors = [], powerUps = [];
+let player = { x: canvas.width/2, y: FLOOR_Y-30, vx: 0, vy: 0, hookedTo: null, ropeLen: 0, radius: 15, onGround: false, history: [], rotation: 0 };
+let mouse = { x: 0, y: 0 }, currentTarget = null, keys = {}, anchors = [];
 
-for (let i = 0; i < 2000; i++) {
-    let ay = (canvas.height - 250) - (i * 180);
-    anchors.push({ x: Math.random() * (canvas.width - 200) + 100, y: ay });
-    if (i % 15 === 0 && i > 0) powerUps.push({ x: Math.random() * (canvas.width - 200) + 100, y: ay - 90, radius: 35, active: true, rot: 0 });
-}
+for (let i = 0; i < 2000; i++) { anchors.push({ x: Math.random() * (canvas.width - 200) + 100, y: (canvas.height - 250) - (i * 180) }); }
 
 window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+window.addEventListener('mousedown', () => { if(!gameActive || isPaused || !currentTarget) return; player.hookedTo = currentTarget; player.ropeLen = Math.sqrt((player.x-currentTarget.x)**2+(player.y-currentTarget.y)**2); });
+window.addEventListener('mouseup', () => player.hookedTo = null);
 window.addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'Escape') togglePause(); });
 window.addEventListener('keyup', e => keys[e.code] = false);
-window.addEventListener('mousedown', () => { 
-    if(!gameActive || isPaused || !currentTarget) return;
-    player.hookedTo = currentTarget; 
-    player.ropeLen = Math.sqrt((player.x-currentTarget.x)**2+(player.y-currentTarget.y)**2); 
-});
-window.addEventListener('mouseup', () => player.hookedTo = null);
+
+function togglePause() { if (!gameActive) return; isPaused = !isPaused; document.getElementById('overlay').classList.toggle('hidden', !isPaused); document.getElementById('pause-menu').classList.toggle('hidden', !isPaused); if(isPaused) syncCloud(); }
 
 function update() {
     if (!gameActive || isPaused) return;
-    let camY = Math.min(0, player.y - canvas.height * 0.7);
-    if (player.launchCooldown > 0) player.launchCooldown--;
+    let h = Math.floor(Math.max(0, (FLOOR_Y - player.radius - player.y)/10));
+    if (gameMode === "LAVA") {
+        lavaY -= (0.8 + (h / 600));
+        let dist = Math.max(0, Math.floor((lavaY - (player.y + player.radius))/10));
+        document.getElementById('lava-dist').innerText = dist;
+        if (player.y + player.radius > lavaY) { gameActive = false; alert("MISSION FAILURE: " + h + "m"); logout(); return; }
+    }
     player.rotation += player.vx * 0.05;
     player.history.push({x: player.x, y: player.y});
     if (player.history.length > 20) player.history.shift();
+    let camY = Math.min(0, player.y - canvas.height * 0.7);
     currentTarget = null;
     anchors.forEach(a => {
         let d = Math.sqrt((mouse.x - a.x)**2 + (mouse.y - (a.y - camY))**2);
         if (d < 55 && Math.sqrt((player.x - a.x)**2 + (player.y - a.y)**2) < HOOK_RANGE) currentTarget = a;
-    });
-    powerUps.forEach(p => {
-        if (p.active && player.launchCooldown === 0) {
-            if (Math.sqrt((player.x-p.x)**2+(player.y-p.y)**2) < player.radius + p.radius) {
-                player.vy = MEGA_LAUNCH; player.vx *= 1.4; player.hookedTo = null; 
-                player.launchCooldown = 120; shakeTime = 25;
-            }
-        }
     });
     if (player.hookedTo) {
         let dx = player.x-player.hookedTo.x, dy = player.y-player.hookedTo.y, dist = Math.sqrt(dx*dx+dy*dy);
@@ -217,124 +203,74 @@ function update() {
     }
     player.vy += GRAVITY; player.vx *= FRICTION_AIR; player.vy *= FRICTION_AIR;
     player.x += player.vx; player.y += player.vy;
-    if (player.y > FLOOR_Y - player.radius) { player.y = FLOOR_Y-player.radius; player.vy = 0; player.onGround = true; } 
-    else { player.onGround = false; }
+    if (player.y > FLOOR_Y - player.radius) { player.y = FLOOR_Y-player.radius; player.vy = 0; player.onGround = true; } else { player.onGround = false; }
     if (player.x < player.radius || player.x > canvas.width-player.radius) { player.vx *= -0.5; player.x = (player.x < player.radius) ? player.radius : canvas.width-player.radius; }
-    if (shakeTime > 0) shakeTime--;
-    let h = Math.floor(Math.max(0, (FLOOR_Y - player.radius - player.y)/10));
     document.getElementById('height').innerText = h;
     if(h > user.best) { 
-        let gain = (h - user.best) * CREDIT_MULTIPLIER;
-        user.best = h; user.credits += gain;
-        document.getElementById('best-height').innerText = h; 
-        if(h > 0 && h % 50 === 0) { saveToDisk(); sendToLeaderboard(); }
+        user.credits += (h - user.best) * CREDIT_MULTIPLIER;
+        user.best = h; document.getElementById('best-height').innerText = h; 
+        if(h % 50 === 0) syncCloud();
     }
 }
 
 function draw() {
     let camY = Math.min(0, player.y - canvas.height * 0.7);
-    ctx.save();
-    if (shakeTime > 0) ctx.translate(Math.random()*10-5, Math.random()*10-5);
     ctx.fillStyle = "#010101"; ctx.fillRect(0,0,canvas.width,canvas.height);
     ctx.fillStyle = "#0a0a0a"; ctx.fillRect(0, FLOOR_Y-camY, canvas.width, 300);
     ctx.strokeStyle = "#0ff"; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(0, FLOOR_Y-camY); ctx.lineTo(canvas.width, FLOOR_Y-camY); ctx.stroke();
 
-    // TRAILS
-    if (player.history.length > 2) {
-        for (let i = 0; i < player.history.length - 1; i++) {
-            let p1 = player.history[i], p2 = player.history[i+1], ratio = i/player.history.length;
-            ctx.beginPath(); ctx.moveTo(p1.x, p1.y-camY); ctx.lineTo(p2.x, p2.y-camY);
-            if (user.color === "#ff0") {
-                ctx.lineWidth = ratio * 28; ctx.globalAlpha = ratio * 0.6; ctx.strokeStyle = "#ff4500"; ctx.stroke();
-                ctx.lineWidth = ratio * 10; ctx.strokeStyle = "#fff"; ctx.stroke();
-            } else {
-                ctx.lineWidth = ratio * 15; ctx.globalAlpha = ratio * 0.3; ctx.strokeStyle = player.launchCooldown > 0 ? "#fff" : user.color; ctx.stroke();
-            }
-        }
-        ctx.globalAlpha = 1;
+    if (gameMode === "LAVA") {
+        let lG = ctx.createLinearGradient(0, lavaY-camY, 0, lavaY-camY+600);
+        lG.addColorStop(0, "rgba(255,40,0,1)"); lG.addColorStop(0.2, "rgba(255,100,0,0.8)"); lG.addColorStop(1, "transparent");
+        ctx.fillStyle = lG; ctx.fillRect(0, lavaY-camY, canvas.width, 1000);
     }
-
-    // MAP OBJECTS
-    powerUps.forEach(p => {
-        ctx.save(); ctx.translate(p.x, p.y-camY); ctx.rotate(Date.now()*0.002);
-        ctx.beginPath(); ctx.arc(0, 0, p.radius, 0, Math.PI*2);
-        ctx.strokeStyle = "#a0f"; ctx.setLineDash([5, 10]); ctx.lineWidth = 4; ctx.stroke();
-        ctx.fillStyle = "rgba(160, 0, 255, 0.2)"; ctx.fill(); ctx.restore();
-    });
     anchors.forEach(a => {
         let isT = (a === currentTarget || a === player.hookedTo);
         ctx.beginPath(); ctx.arc(a.x, a.y-camY, isT?10:5, 0, Math.PI*2);
         ctx.fillStyle = isT?"#fff":"#333"; ctx.fill();
     });
-    if (player.hookedTo) { ctx.beginPath(); ctx.moveTo(player.x, player.y-camY); ctx.lineTo(player.hookedTo.x, player.hookedTo.y-camY); ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 2; ctx.stroke(); }
+    if (player.hookedTo) {
+        ctx.beginPath(); ctx.moveTo(player.x, player.y-camY); ctx.lineTo(player.hookedTo.x, player.hookedTo.y-camY);
+        ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+        ctx.strokeStyle = user.color; ctx.lineWidth = 1; ctx.stroke();
+    }
 
-    // --- PLAYER RENDER ---
-    ctx.save();
-    ctx.translate(player.x, player.y - camY);
-    let time = Date.now() * 0.002;
-    let pCol = player.launchCooldown > 0 ? "#fff" : user.color;
-
-    if (user.color === "#ff0") {
-        // --- SOLAR FLARE ---
+    // --- RE-INTEGRATED BEST SCRIPT RENDERING ---
+    ctx.save(); ctx.translate(player.x, player.y - camY);
+    if (user.color === "#ff0") { // SOLAR_FLARE
         let pulse = (Math.sin(Date.now() * 0.015) + 1) / 2;
         let glow = ctx.createRadialGradient(0, 0, 0, 0, 0, 40 + (pulse * 10));
-        glow.addColorStop(0, "#fff");
-        glow.addColorStop(0.2, "rgba(255, 255, 0, 0.9)");
-        glow.addColorStop(0.6, "rgba(255, 69, 0, 0.3)");
-        glow.addColorStop(1, "rgba(255, 0, 0, 0)");
+        glow.addColorStop(0, "#fff"); glow.addColorStop(0.2, "rgba(255, 255, 0, 0.9)"); glow.addColorStop(1, "rgba(255, 0, 0, 0)");
         ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0, 0, 50, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = "#fff"; ctx.shadowBlur = 15; ctx.shadowColor = "#ff0";
-        ctx.beginPath(); ctx.arc(0, 0, player.radius, 0, Math.PI * 2); ctx.fill();
-        ctx.shadowBlur = 0;
-    } else {
-        // --- DEFAULT & VIOLET PULSE ---
-        if (user.color === "#f0f") {
-            // SINGLE CONTRAST-DRIVEN RING
-            ctx.save();
-            // Rotation is current time + inverse player movement for "contrast"
-            let contrastRot = time - (player.vx * 0.1) - (player.vy * 0.05);
-            ctx.rotate(contrastRot);
-            
-            let count = 8; // Number of evenly spaced circles
-            let radius = 35; // Distance from center
-            
-            for(let i = 0; i < count; i++) {
-                ctx.save();
-                ctx.rotate(i * (Math.PI * 2 / count));
-                ctx.translate(radius, 0);
-                
-                // Glowing circle
-                let orbG = ctx.createRadialGradient(0,0,0,0,0,5);
-                orbG.addColorStop(0, "#fff"); orbG.addColorStop(1, "transparent");
-                ctx.fillStyle = orbG; ctx.beginPath(); ctx.arc(0,0,5,0,Math.PI*2); ctx.fill();
-                
-                // Small violet frame
-                ctx.strokeStyle = "#f0f"; ctx.lineWidth = 1.5;
-                ctx.beginPath(); ctx.arc(0,0,4,0,Math.PI*2); ctx.stroke();
-                ctx.restore();
-            }
-            ctx.restore();
+        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(0, 0, player.radius, 0, Math.PI * 2); ctx.fill();
+    } else if (user.color === "#f0f") { // VIOLET_PULSE
+        ctx.save(); ctx.rotate(Date.now()*0.002 - (player.vx*0.1));
+        for(let i=0; i<8; i++) {
+            ctx.save(); ctx.rotate(i*(Math.PI/4)); ctx.translate(35,0);
+            ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(0,0,4,0,Math.PI*2); ctx.fill();
+            ctx.strokeStyle = "#f0f"; ctx.stroke(); ctx.restore();
         }
-
+        ctx.restore();
         ctx.rotate(player.rotation);
         ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(0, 0, player.radius, 0, Math.PI*2); ctx.fill();
-        ctx.strokeStyle = pCol; ctx.lineWidth = 2.5; ctx.stroke();
-
-        if (user.color !== "#0ff") {
-            let pulse = (Math.sin(Date.now()*0.01) + 1) / 2;
-            ctx.beginPath(); ctx.arc(0, 0, player.radius * 0.5, 0, Math.PI*2);
-            ctx.fillStyle = pCol; ctx.globalAlpha = 0.3 + (pulse * 0.4); ctx.fill();
-            ctx.globalAlpha = 1;
-        }
+        ctx.strokeStyle = user.color; ctx.lineWidth = 2.5; ctx.stroke();
+    } else { // DEFAULT & PHANTOM
+        ctx.rotate(player.rotation);
+        ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(0, 0, player.radius, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = user.color; ctx.lineWidth = 2.5; ctx.stroke();
+        let pulse = (Math.sin(Date.now()*0.01) + 1) / 2;
+        ctx.beginPath(); ctx.arc(0, 0, player.radius * 0.5, 0, Math.PI*2);
+        ctx.fillStyle = user.color; ctx.globalAlpha = 0.3 + (pulse * 0.4); ctx.fill();
     }
-    
     ctx.restore();
+
     if (!isPaused && gameActive) {
-        ctx.restore(); ctx.beginPath(); ctx.arc(mouse.x, mouse.y, 45, 0, Math.PI*2); ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.setLineDash([5,5]); ctx.stroke(); ctx.setLineDash([]);
-    } else { ctx.restore(); }
+        ctx.beginPath(); ctx.arc(mouse.x, mouse.y, 45, 0, Math.PI*2);
+        ctx.strokeStyle = "#0ff"; ctx.lineWidth = 2; ctx.setLineDash([10, 5]); ctx.stroke(); ctx.setLineDash([]);
+    }
     update(); requestAnimationFrame(draw);
 }
 draw();
 </script>
 </body>
-</html> 
+</html>
