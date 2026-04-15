@@ -2,6 +2,7 @@
 <html>
 <head>
     <title>CUNION CLIMB - Assist Protocol</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body { margin: 0; background: #010101; overflow: hidden; font-family: 'Courier New', monospace; cursor: none; }
         canvas { display: block; }
@@ -26,6 +27,7 @@
         .m-btn { background: #111; color: #444; border: 1px solid #333; padding: 5px 10px; cursor: pointer; font-size: 10px; }
         .m-btn.active { color: #0ff; border-color: #0ff; box-shadow: 0 0 5px #0ff; }
         .m-btn.lava-on { color: #f44; border-color: #f44; box-shadow: 0 0 5px #f44; }
+        .m-btn.multi-on { color: #f0f; border-color: #f0f; box-shadow: 0 0 5px #f0f; }
         
         .setting-row { display: flex; justify-content: space-between; align-items: center; color: #fff; margin: 15px 0; font-size: 14px; }
         .toggle-input { width: 20px !important; height: 20px; cursor: pointer; margin: 0 !important; }
@@ -42,6 +44,7 @@
             <div class="mode-select">
                 <div id="m-std" class="m-btn active" onclick="setProtocol('STD')">STANDARD</div>
                 <div id="m-lava" class="m-btn" onclick="setProtocol('LAVA')">LAVA CLIMB</div>
+                <div id="m-multi" class="m-btn" onclick="showMultiMenu()">MULTIPLAYER</div>
             </div>
             <button onclick="startGame()">LAUNCH ENGINE</button>
             <button onclick="showSkins()">SKINS</button>
@@ -53,6 +56,19 @@
                     <tbody id="leaderboard-body"><tr><td colspan="4" style="text-align:center;">OFFLINE</td></tr></tbody>
                 </table>
             </div>
+        </div>
+
+        <div class="menu-box hidden" id="multi-menu">
+            <h2 style="color:#f0f; margin:0;">MULTI-LINK</h2>
+            <div id="host-zone" style="margin-top:20px;">
+                <button onclick="hostGame()" style="background:#f0f; color:#000;">GENERATE HOST CODE</button>
+                <p id="room-code-display" style="color:#fff; font-size:20px; margin:10px; letter-spacing:3px;"></p>
+            </div>
+            <div style="border-top:1px solid #333; margin:15px 0;"></div>
+            <input type="text" id="join-input" placeholder="Enter 6-Letter Code" maxlength="6" style="text-transform:uppercase;">
+            <button onclick="joinGame()">JOIN FRIEND</button>
+            <br><br>
+            <button onclick="backFromMulti()" style="background:#333; color:#fff;">BACK</button>
         </div>
 
         <div class="menu-box hidden" id="pause-menu">
@@ -98,12 +114,59 @@ const CREDIT_MULTIPLIER = 0.1;
 let gameActive = false, isPaused = false, gameMode = "STD", lavaY = 10000; 
 let user = { name: "Guest", pass: "", best: 0, credits: 0, color: "#0ff", unlocked: ["#0ff"] };
 
+// MULTIPLAYER GLOBALS
+let peer = null, conn = null, remotePlayers = {};
+
 const skinData = [
     { name: "NEON_DEFAULT", color: "#0ff", cost: 0 },
     { name: "VIOLET_PULSE", color: "#f0f", cost: 1000 },
     { name: "SOLAR_FLARE", color: "#ff0", cost: 3000 },
     { name: "PHANTOM_ICE", color: "#fff", cost: 6000 }
 ];
+
+// MULTIPLAYER FUNCTIONS
+function generate6LetterCode() {
+    let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let code = "";
+    for(let i=0; i<6; i++) code += chars.charAt(Math.floor(Math.random()*chars.length));
+    return code;
+}
+
+function hostGame() {
+    const code = generate6LetterCode();
+    document.getElementById('room-code-display').innerText = code;
+    peer = new Peer("CC-" + code);
+    peer.on('connection', c => {
+        conn = c;
+        setupMultiplayer();
+    });
+}
+
+function joinGame() {
+    const code = document.getElementById('join-input').value.toUpperCase();
+    if(code.length !== 6) return;
+    peer = new Peer();
+    peer.on('open', () => {
+        conn = peer.connect("CC-" + code);
+        setupMultiplayer();
+        startGame();
+    });
+}
+
+function setupMultiplayer() {
+    conn.on('data', data => { remotePlayers[data.name] = data; });
+    document.getElementById('m-multi').classList.add('multi-on');
+    backFromMulti();
+}
+
+function broadcastPos() {
+    if(conn && conn.open) {
+        conn.send({ name: user.name, x: player.x, y: player.y, color: user.color, rot: player.rotation });
+    }
+}
+
+function showMultiMenu() { document.getElementById('main-menu').classList.add('hidden'); document.getElementById('multi-menu').classList.remove('hidden'); }
+function backFromMulti() { document.getElementById('multi-menu').classList.add('hidden'); document.getElementById('main-menu').classList.remove('hidden'); }
 
 async function refreshLeaderboard() {
     try {
@@ -230,6 +293,9 @@ function update() {
     if (player.x < player.radius || player.x > canvas.width-player.radius) { player.vx *= -0.5; player.x = (player.x < player.radius) ? player.radius : canvas.width-player.radius; }
     document.getElementById('height').innerText = h;
     if(h > user.best) { user.credits += (h-user.best)*CREDIT_MULTIPLIER; user.best = h; document.getElementById('best-height').innerText = h; }
+    
+    // BROADCAST MULTIPLAYER DATA
+    broadcastPos();
 }
 
 function draw() {
@@ -247,6 +313,16 @@ function draw() {
         ctx.beginPath(); ctx.arc(a.x, a.y-camY, isT?10:5, 0, Math.PI*2);
         ctx.fillStyle = isT?"#fff":"#333"; ctx.fill();
     });
+
+    // DRAW REMOTE GHOSTS
+    for(let id in remotePlayers) {
+        let p = remotePlayers[id];
+        ctx.save(); ctx.translate(p.x, p.y-camY); ctx.globalAlpha = 0.5;
+        ctx.rotate(p.rot); ctx.strokeStyle = p.color; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(0, 0, 15, 0, Math.PI*2); ctx.stroke();
+        ctx.restore();
+    }
+
     if (player.hookedTo) {
         ctx.beginPath(); ctx.moveTo(player.x, player.y-camY); ctx.lineTo(player.hookedTo.x, player.hookedTo.y-camY);
         ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
