@@ -1,17 +1,23 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>CUNION CLIMB - Protocol Edition</title>
+    <title>CUNION CLIMB - Assist Protocol</title>
     <style>
         body { margin: 0; background: #010101; overflow: hidden; font-family: 'Courier New', monospace; cursor: none; }
         canvas { display: block; }
         #ui-container { position: absolute; top: 20px; left: 20px; color: #0ff; pointer-events: none; z-index: 10; }
         .stat-text { font-size: 20px; font-weight: bold; text-shadow: 0 0 10px #0ff; margin-bottom: 5px; }
-        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; justify-content: center; align-items: center; z-index: 100; cursor: default; }
-        .menu-box { padding: 40px; border: 2px solid #0ff; background: #000; text-align: center; box-shadow: 0 0 20px #0ff; min-width: 320px; }
+        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; justify-content: center; align-items: center; z-index: 100; cursor: default; overflow-y: auto; }
+        .menu-box { padding: 40px; border: 2px solid #0ff; background: #000; text-align: center; box-shadow: 0 0 20px #0ff; min-width: 320px; margin: 20px; }
         input { background: #000; border: 1px solid #0ff; color: #fff; padding: 10px; font-family: 'Courier New'; margin: 10px; width: 200px; outline: none; }
         button { background: #0ff; border: none; padding: 10px 20px; font-family: 'Courier New'; font-weight: bold; cursor: pointer; margin: 5px; width: 100%; max-width: 240px; transition: 0.2s; }
         button:hover { background: #fff; box-shadow: 0 0 15px #fff; }
+        
+        #leaderboard-container { margin-top: 20px; border-top: 1px solid #333; padding-top: 20px; max-height: 200px; overflow-y: auto; }
+        table { width: 100%; color: #0ff; font-size: 12px; border-collapse: collapse; margin-top: 10px; }
+        th { border-bottom: 1px solid #0ff; padding: 5px; text-align: left; color: #f0f; position: sticky; top: 0; background: #000; }
+        td { padding: 5px; border-bottom: 1px solid #111; text-align: left; }
+        
         #skin-list { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }
         .skin-item { border: 2px solid #333; padding: 15px; background: #050505; transition: 0.3s; }
         .hidden { display: none !important; }
@@ -20,6 +26,9 @@
         .m-btn { background: #111; color: #444; border: 1px solid #333; padding: 5px 10px; cursor: pointer; font-size: 10px; }
         .m-btn.active { color: #0ff; border-color: #0ff; box-shadow: 0 0 5px #0ff; }
         .m-btn.lava-on { color: #f44; border-color: #f44; box-shadow: 0 0 5px #f44; }
+        
+        .setting-row { display: flex; justify-content: space-between; align-items: center; color: #fff; margin: 15px 0; font-size: 14px; }
+        .toggle-input { width: 20px !important; height: 20px; cursor: pointer; margin: 0 !important; }
     </style>
 </head>
 <body>
@@ -34,22 +43,42 @@
                 <div id="m-std" class="m-btn active" onclick="setProtocol('STD')">STANDARD</div>
                 <div id="m-lava" class="m-btn" onclick="setProtocol('LAVA')">LAVA CLIMB</div>
             </div>
-            <button id="launch-btn" onclick="startGame()">LAUNCH ENGINE</button>
-            <button onclick="showSkins()">SKIN PROTOCOLS</button>
+            <button onclick="startGame()">LAUNCH ENGINE</button>
+            <button onclick="showSkins()">SKINS</button>
+            <button onclick="showSettings()" style="background:#444; color:#fff;">SETTINGS</button>
             <div id="sync-notice"></div>
+            <div id="leaderboard-container">
+                <table id="leaderboard-table">
+                    <thead><tr><th>#</th><th>PILOT</th><th>ALT</th><th>CREDITS</th></tr></thead>
+                    <tbody id="leaderboard-body"><tr><td colspan="4" style="text-align:center;">OFFLINE</td></tr></tbody>
+                </table>
+            </div>
         </div>
+
         <div class="menu-box hidden" id="pause-menu">
             <h1 style="color:#0ff; margin:0;">PAUSED</h1>
             <button onclick="resumeGame()">RESUME</button>
-            <button onclick="showSkins()">SKIN PROTOCOLS</button>
+            <button onclick="showSkins()">SKINS</button>
+            <button onclick="showSettings()" style="background:#444; color:#fff;">SETTINGS</button>
             <button onclick="logout()" style="background:#f00; color:#fff;">LOG OUT</button>
         </div>
+
         <div class="menu-box hidden" id="skin-menu">
-            <h2 style="color:#f0f; margin:0;">EQUIPMENT BAY</h2>
+            <h2 style="color:#f0f; margin:0;">EQUIPMENT</h2>
             <p style="color:#fff">Credits: <span id="credit-count" style="color:#0f0">0</span></p>
-            <div id="skin-list"></div>
-            <br>
+            <div id="skin-list"></div><br>
             <button onclick="backFromSkins()" style="background:#f0f; color:#000;">BACK</button>
+        </div>
+
+        <div class="menu-box hidden" id="settings-menu">
+            <h2 style="color:#0ff; margin:0;">SYSTEM SETTINGS</h2>
+            <div class="setting-row">
+                <span>AUTO-TARGET ASSIST</span>
+                <input type="checkbox" id="assist-toggle" class="toggle-input">
+            </div>
+            <p style="color:#666; font-size: 10px; text-align: left;">Locks to the highest anchor in range automatically.</p>
+            <br>
+            <button onclick="backFromSettings()" style="background:#0ff; color:#000;">SAVE & BACK</button>
         </div>
     </div>
 
@@ -76,17 +105,25 @@ const skinData = [
     { name: "PHANTOM_ICE", color: "#fff", cost: 6000 }
 ];
 
+async function refreshLeaderboard() {
+    try {
+        const response = await fetch(`${SCRIPT_URL}?type=getLeaderboard`);
+        const topPlayers = await response.json();
+        const tbody = document.getElementById('leaderboard-body');
+        tbody.innerHTML = "";
+        topPlayers.forEach((p, i) => {
+            tbody.innerHTML += `<tr><td>${i+1}</td><td>${p.name}</td><td>${p.best}m</td><td style="color:#0f0;">${Math.floor(p.credits)}</td></tr>`;
+        });
+    } catch (e) {}
+}
+refreshLeaderboard();
+
 async function syncCloud() {
     if (user.name === "Guest") return;
     try {
         await fetch(SCRIPT_URL, { 
-            method: "POST", 
-            body: JSON.stringify({ 
-                type: "saveScore", name: user.name, pass: user.pass, 
-                score: user.best, credits: Math.floor(user.credits), 
-                skins: user.unlocked.join(", ") 
-            }), 
-            mode: "no-cors" 
+            method: "POST", mode: "no-cors", 
+            body: JSON.stringify({ type: "saveScore", name: user.name, pass: user.pass, score: user.best, credits: Math.floor(user.credits), skins: user.unlocked.join(", ") })
         });
     } catch (e) {}
 }
@@ -95,95 +132,81 @@ async function startGame() {
     const name = document.getElementById('name-input').value.trim();
     const pass = document.getElementById('pass-input').value.trim();
     if (!name || !pass) return;
-    document.getElementById('sync-notice').innerText = "SYNCING PROFILE...";
+    document.getElementById('sync-notice').innerText = "SYNCING...";
     try {
-        const response = await fetch(SCRIPT_URL, {
-            method: "POST",
-            body: JSON.stringify({ type: "loadUser", name: name, pass: pass }),
-            headers: { "Content-Type": "text/plain" }
-        });
+        const response = await fetch(SCRIPT_URL, { method: "POST", body: JSON.stringify({ type: "loadUser", name: name, pass: pass }) });
         const cloudData = await response.json();
-        if (cloudData.exists) {
-            user = { name: name, pass: pass, best: cloudData.best || 0, credits: cloudData.credits || 0, color: user.color || "#0ff", unlocked: cloudData.skins ? cloudData.skins.split(", ") : ["#0ff"] };
-        }
+        if (cloudData.exists) user = { name, pass, best: cloudData.best || 0, credits: cloudData.credits || 0, color: user.color || "#0ff", unlocked: cloudData.skins ? cloudData.skins.split(", ") : ["#0ff"] };
     } catch (e) {}
     document.getElementById('d-name').innerText = user.name;
     document.getElementById('best-height').innerText = user.best;
     document.getElementById('sync-notice').innerText = "";
     document.getElementById('overlay').classList.add('hidden');
-    player.x = canvas.width / 2; player.y = FLOOR_Y - 30; player.vx = 0; player.vy = 0; player.history = [];
-    lavaY = FLOOR_Y + 600; 
-    gameActive = true; isPaused = false;
+    player.x = canvas.width/2; player.y = FLOOR_Y-30; player.vx = 0; player.vy = 0;
+    lavaY = FLOOR_Y + 600; gameActive = true; isPaused = false;
 }
 
-function setProtocol(m) {
-    gameMode = m;
-    document.getElementById('m-std').className = m === 'STD' ? 'm-btn active' : 'm-btn';
-    document.getElementById('m-lava').className = m === 'LAVA' ? 'm-btn lava-on' : 'm-btn';
-    document.getElementById('lava-counter').classList.toggle('hidden', m !== 'LAVA');
-}
-
-function logout() {
-    syncCloud(); gameActive = false;
-    document.getElementById('pause-menu').classList.add('hidden');
-    document.getElementById('main-menu').classList.remove('hidden');
-    document.getElementById('overlay').classList.remove('hidden');
-}
-
+function showSettings() { document.querySelectorAll('.menu-box').forEach(m => m.classList.add('hidden')); document.getElementById('settings-menu').classList.remove('hidden'); }
+function backFromSettings() { document.getElementById('settings-menu').classList.add('hidden'); if(gameActive) document.getElementById('pause-menu').classList.remove('hidden'); else document.getElementById('main-menu').classList.remove('hidden'); }
+function setProtocol(m) { gameMode = m; document.getElementById('m-std').className = m === 'STD' ? 'm-btn active' : 'm-btn'; document.getElementById('m-lava').className = m === 'LAVA' ? 'm-btn lava-on' : 'm-btn'; document.getElementById('lava-counter').classList.toggle('hidden', m !== 'LAVA'); }
+function logout() { syncCloud(); gameActive = false; refreshLeaderboard(); document.getElementById('pause-menu').classList.add('hidden'); document.getElementById('main-menu').classList.remove('hidden'); document.getElementById('overlay').classList.remove('hidden'); }
+function showSkins() { document.querySelectorAll('.menu-box').forEach(m => m.classList.add('hidden')); document.getElementById('skin-menu').classList.remove('hidden'); renderSkins(); }
+function backFromSkins() { document.getElementById('skin-menu').classList.add('hidden'); if(gameActive) document.getElementById('pause-menu').classList.remove('hidden'); else document.getElementById('main-menu').classList.remove('hidden'); }
 function renderSkins() {
     document.getElementById('credit-count').innerText = Math.floor(user.credits);
     const list = document.getElementById('skin-list'); list.innerHTML = "";
     skinData.forEach(s => {
         const bought = user.unlocked.includes(s.color);
-        list.innerHTML += `<div class="skin-item" style="border-color: ${s.color};">
-            <div style="color:${s.color}; font-size: 12px;">${s.name}</div>
-            ${bought ? `<button onclick="setSkin('${s.color}')" style="background:${s.color}; color:#000;">EQUIP</button>` : `<button onclick="buySkin('${s.color}',${s.cost})">BUY ${s.cost}</button>`}
-        </div>`;
+        list.innerHTML += `<div class="skin-item" style="border-color:${s.color};"><div style="color:${s.color}; font-size:12px;">${s.name}</div>${bought ? `<button onclick="setSkin('${s.color}')" style="background:${s.color};">EQUIP</button>` : `<button onclick="buySkin('${s.color}',${s.cost})">BUY ${s.cost}</button>`}</div>`;
     });
 }
 function buySkin(c, cost) { if(user.credits >= cost) { user.credits -= cost; user.unlocked.push(c); syncCloud(); renderSkins(); } }
 function setSkin(c) { user.color = c; backFromSkins(); }
 function resumeGame() { isPaused = false; document.getElementById('overlay').classList.add('hidden'); }
-function showSkins() { document.getElementById('main-menu').classList.add('hidden'); document.getElementById('pause-menu').classList.add('hidden'); document.getElementById('skin-menu').classList.remove('hidden'); renderSkins(); }
-function backFromSkins() { document.getElementById('skin-menu').classList.add('hidden'); if (gameActive) document.getElementById('pause-menu').classList.remove('hidden'); else document.getElementById('main-menu').classList.remove('hidden'); }
 
 const canvas = document.getElementById('canvas'), ctx = canvas.getContext('2d');
 canvas.width = window.innerWidth; canvas.height = window.innerHeight;
-const GRAVITY = 0.28, FRICTION_AIR = 0.985, FRICTION_GROUND = 0.85;
-const WALK_SPEED = 0.7, JUMP_FORCE = -10, SWING_FORCE = 0.6, HOOK_RANGE = 380;
-const FLOOR_Y = canvas.height - 50;
+const GRAVITY = 0.28, FRICTION_AIR = 0.985, FRICTION_GROUND = 0.85, WALK_SPEED = 0.7, JUMP_FORCE = -10, SWING_FORCE = 0.6, HOOK_RANGE = 380, FLOOR_Y = canvas.height-50;
 
-let player = { x: canvas.width/2, y: FLOOR_Y-30, vx: 0, vy: 0, hookedTo: null, ropeLen: 0, radius: 15, onGround: false, history: [], rotation: 0 };
+let player = { x: canvas.width/2, y: FLOOR_Y-30, vx: 0, vy: 0, hookedTo: null, ropeLen: 0, radius: 15, onGround: false, rotation: 0 };
 let mouse = { x: 0, y: 0 }, currentTarget = null, keys = {}, anchors = [];
 
-for (let i = 0; i < 2000; i++) { anchors.push({ x: Math.random() * (canvas.width - 200) + 100, y: (canvas.height - 250) - (i * 180) }); }
+for (let i = 0; i < 2000; i++) anchors.push({ x: Math.random()*(canvas.width-200)+100, y: (canvas.height-250)-(i*180) });
 
 window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
 window.addEventListener('mousedown', () => { if(!gameActive || isPaused || !currentTarget) return; player.hookedTo = currentTarget; player.ropeLen = Math.sqrt((player.x-currentTarget.x)**2+(player.y-currentTarget.y)**2); });
 window.addEventListener('mouseup', () => player.hookedTo = null);
-window.addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'Escape') togglePause(); });
+window.addEventListener('keydown', e => { keys[e.code] = true; if(e.code==='Escape') togglePause(); });
 window.addEventListener('keyup', e => keys[e.code] = false);
 
-function togglePause() { if (!gameActive) return; isPaused = !isPaused; document.getElementById('overlay').classList.toggle('hidden', !isPaused); document.getElementById('pause-menu').classList.toggle('hidden', !isPaused); if(isPaused) syncCloud(); }
+function togglePause() { if(!gameActive) return; isPaused = !isPaused; document.getElementById('overlay').classList.toggle('hidden', !isPaused); document.getElementById('pause-menu').classList.toggle('hidden', !isPaused); if(isPaused) syncCloud(); }
 
 function update() {
     if (!gameActive || isPaused) return;
     let h = Math.floor(Math.max(0, (FLOOR_Y - player.radius - player.y)/10));
     if (gameMode === "LAVA") {
-        lavaY -= (0.8 + (h / 600));
-        let dist = Math.max(0, Math.floor((lavaY - (player.y + player.radius))/10));
-        document.getElementById('lava-dist').innerText = dist;
-        if (player.y + player.radius > lavaY) { gameActive = false; alert("MISSION FAILURE: " + h + "m"); logout(); return; }
+        lavaY -= (0.8 + (h/600));
+        document.getElementById('lava-dist').innerText = Math.max(0, Math.floor((lavaY - (player.y+player.radius))/10));
+        if (player.y + player.radius > lavaY) { gameActive = false; alert("LAVA REACHED: "+h+"m"); logout(); return; }
     }
     player.rotation += player.vx * 0.05;
-    player.history.push({x: player.x, y: player.y});
-    if (player.history.length > 20) player.history.shift();
-    let camY = Math.min(0, player.y - canvas.height * 0.7);
+    let camY = Math.min(0, player.y - canvas.height*0.7);
     currentTarget = null;
-    anchors.forEach(a => {
-        let d = Math.sqrt((mouse.x - a.x)**2 + (mouse.y - (a.y - camY))**2);
-        if (d < 55 && Math.sqrt((player.x - a.x)**2 + (player.y - a.y)**2) < HOOK_RANGE) currentTarget = a;
-    });
+
+    // ASSIST LOGIC
+    if (document.getElementById('assist-toggle').checked) {
+        let bestY = Infinity;
+        anchors.forEach(a => {
+            let d = Math.sqrt((player.x-a.x)**2 + (player.y-a.y)**2);
+            if (d < HOOK_RANGE && a.y < player.y && a.y < bestY) { bestY = a.y; currentTarget = a; }
+        });
+    } else {
+        anchors.forEach(a => {
+            let d = Math.sqrt((mouse.x-a.x)**2 + (mouse.y-(a.y-camY))**2);
+            if (d < 55 && Math.sqrt((player.x-a.x)**2 + (player.y-a.y)**2) < HOOK_RANGE) currentTarget = a;
+        });
+    }
+
     if (player.hookedTo) {
         let dx = player.x-player.hookedTo.x, dy = player.y-player.hookedTo.y, dist = Math.sqrt(dx*dx+dy*dy);
         if (dist > player.ropeLen) {
@@ -203,22 +226,17 @@ function update() {
     }
     player.vy += GRAVITY; player.vx *= FRICTION_AIR; player.vy *= FRICTION_AIR;
     player.x += player.vx; player.y += player.vy;
-    if (player.y > FLOOR_Y - player.radius) { player.y = FLOOR_Y-player.radius; player.vy = 0; player.onGround = true; } else { player.onGround = false; }
+    if (player.y > FLOOR_Y-player.radius) { player.y = FLOOR_Y-player.radius; player.vy = 0; player.onGround = true; } else player.onGround = false;
     if (player.x < player.radius || player.x > canvas.width-player.radius) { player.vx *= -0.5; player.x = (player.x < player.radius) ? player.radius : canvas.width-player.radius; }
     document.getElementById('height').innerText = h;
-    if(h > user.best) { 
-        user.credits += (h - user.best) * CREDIT_MULTIPLIER;
-        user.best = h; document.getElementById('best-height').innerText = h; 
-        if(h % 50 === 0) syncCloud();
-    }
+    if(h > user.best) { user.credits += (h-user.best)*CREDIT_MULTIPLIER; user.best = h; document.getElementById('best-height').innerText = h; }
 }
 
 function draw() {
-    let camY = Math.min(0, player.y - canvas.height * 0.7);
+    let camY = Math.min(0, player.y - canvas.height*0.7);
     ctx.fillStyle = "#010101"; ctx.fillRect(0,0,canvas.width,canvas.height);
     ctx.fillStyle = "#0a0a0a"; ctx.fillRect(0, FLOOR_Y-camY, canvas.width, 300);
     ctx.strokeStyle = "#0ff"; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(0, FLOOR_Y-camY); ctx.lineTo(canvas.width, FLOOR_Y-camY); ctx.stroke();
-
     if (gameMode === "LAVA") {
         let lG = ctx.createLinearGradient(0, lavaY-camY, 0, lavaY-camY+600);
         lG.addColorStop(0, "rgba(255,40,0,1)"); lG.addColorStop(0.2, "rgba(255,100,0,0.8)"); lG.addColorStop(1, "transparent");
@@ -234,35 +252,19 @@ function draw() {
         ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
         ctx.strokeStyle = user.color; ctx.lineWidth = 1; ctx.stroke();
     }
-
-    // --- RE-INTEGRATED BEST SCRIPT RENDERING ---
     ctx.save(); ctx.translate(player.x, player.y - camY);
-    if (user.color === "#ff0") { // SOLAR_FLARE
-        let pulse = (Math.sin(Date.now() * 0.015) + 1) / 2;
-        let glow = ctx.createRadialGradient(0, 0, 0, 0, 0, 40 + (pulse * 10));
-        glow.addColorStop(0, "#fff"); glow.addColorStop(0.2, "rgba(255, 255, 0, 0.9)"); glow.addColorStop(1, "rgba(255, 0, 0, 0)");
-        ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0, 0, 50, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(0, 0, player.radius, 0, Math.PI * 2); ctx.fill();
-    } else if (user.color === "#f0f") { // VIOLET_PULSE
-        ctx.save(); ctx.rotate(Date.now()*0.002 - (player.vx*0.1));
-        for(let i=0; i<8; i++) {
-            ctx.save(); ctx.rotate(i*(Math.PI/4)); ctx.translate(35,0);
-            ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(0,0,4,0,Math.PI*2); ctx.fill();
-            ctx.strokeStyle = "#f0f"; ctx.stroke(); ctx.restore();
-        }
+    if (user.color === "#ff0") { // SOLAR
+        let p = (Math.sin(Date.now()*0.015)+1)/2;
+        let g = ctx.createRadialGradient(0,0,0,0,0,40+(p*10));
+        g.addColorStop(0,"#fff"); g.addColorStop(0.2,"rgba(255,255,0,0.9)"); g.addColorStop(1,"transparent");
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0,0,50,0,Math.PI*2); ctx.fill();
+    } else if (user.color === "#f0f") { // VIOLET
+        ctx.save(); ctx.rotate(Date.now()*0.002);
+        for(let i=0; i<8; i++){ ctx.save(); ctx.rotate(i*Math.PI/4); ctx.translate(35,0); ctx.fillStyle="#fff"; ctx.beginPath(); ctx.arc(0,0,4,0,Math.PI*2); ctx.fill(); ctx.restore(); }
         ctx.restore();
-        ctx.rotate(player.rotation);
-        ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(0, 0, player.radius, 0, Math.PI*2); ctx.fill();
-        ctx.strokeStyle = user.color; ctx.lineWidth = 2.5; ctx.stroke();
-    } else { // DEFAULT & PHANTOM
-        ctx.rotate(player.rotation);
-        ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(0, 0, player.radius, 0, Math.PI*2); ctx.fill();
-        ctx.strokeStyle = user.color; ctx.lineWidth = 2.5; ctx.stroke();
-        let pulse = (Math.sin(Date.now()*0.01) + 1) / 2;
-        ctx.beginPath(); ctx.arc(0, 0, player.radius * 0.5, 0, Math.PI*2);
-        ctx.fillStyle = user.color; ctx.globalAlpha = 0.3 + (pulse * 0.4); ctx.fill();
     }
-    ctx.restore();
+    ctx.rotate(player.rotation); ctx.fillStyle="#000"; ctx.beginPath(); ctx.arc(0,0,player.radius,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle=user.color; ctx.lineWidth=2.5; ctx.stroke(); ctx.restore();
 
     if (!isPaused && gameActive) {
         ctx.beginPath(); ctx.arc(mouse.x, mouse.y, 45, 0, Math.PI*2);
